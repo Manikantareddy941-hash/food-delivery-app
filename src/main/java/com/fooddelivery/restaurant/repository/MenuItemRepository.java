@@ -10,7 +10,20 @@ import java.util.List;
 
 @Repository
 public interface MenuItemRepository extends JpaRepository<MenuItem, Long> {
+
+    // Used for non-paged menu listing (cacheable)
     List<MenuItem> findByRestaurantId(Long restaurantId);
-    Page<MenuItem> findByRestaurantIdAndAvailable(Long restaurantId, Boolean available, Pageable pageable);
+
+    // ✅ REQUIRED for pagination (this fixes your compile error)
+    Page<MenuItem> findByRestaurantId(Long restaurantId, Pageable pageable);
+
+    // Used when filtering by availability
+    Page<MenuItem> findByRestaurantIdAndAvailable(
+            Long restaurantId,
+            Boolean available,
+            Pageable pageable
+    );
+
+    // Optional category filter (fine to keep)
     List<MenuItem> findByRestaurantIdAndCategory(Long restaurantId, String category);
 }

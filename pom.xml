@@ -15,6 +15,7 @@
 
     <groupId>com.fooddelivery</groupId>
     <artifactId>food-delivery-app</artifactId>
+    <packaging>war</packaging>
     <version>1.0.0</version>
 
     <properties>
@@ -54,7 +55,14 @@
             <artifactId>spring-kafka</artifactId>
         </dependency>
 
-        <!-- Database & Migration -->
+        <!-- Tomcat (for WAR deployment) -->
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-starter-tomcat</artifactId>
+            <scope>provided</scope>
+        </dependency>
+
+        <!-- Flyway -->
         <dependency>
             <groupId>org.flywaydb</groupId>
             <artifactId>flyway-core</artifactId>
@@ -99,20 +107,6 @@
             <groupId>org.projectlombok</groupId>
             <artifactId>lombok</artifactId>
             <optional>true</optional>
-        </dependency>
-
-        <!-- MapStruct -->
-        <dependency>
-            <groupId>org.mapstruct</groupId>
-            <artifactId>mapstruct</artifactId>
-            <version>1.5.5.Final</version>
-        </dependency>
-
-        <dependency>
-            <groupId>org.mapstruct</groupId>
-            <artifactId>mapstruct-processor</artifactId>
-            <version>1.5.5.Final</version>
-            <scope>provided</scope>
         </dependency>
 
         <!-- Testing -->

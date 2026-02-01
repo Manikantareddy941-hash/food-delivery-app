@@ -47,29 +47,28 @@ public class OrderService {
                 .orElseThrow(() -> new ResourceNotFoundException("Restaurant not found"));
 
         if (restaurant.getStatus() != RestaurantStatus.ACTIVE) {
-            throw new IllegalArgumentException("Restaurant is not available for orders");
+            throw new IllegalArgumentException("Restaurant not accepting orders");
         }
 
         List<OrderItem> orderItems = request.getItems().stream()
-                .map(itemRequest -> {
+                .map(req -> {
 
-                    MenuItem menuItem = menuItemRepository.findById(itemRequest.getMenuItemId())
-                            .orElseThrow(() ->
-                                    new ResourceNotFoundException("Menu item not found"));
+                    MenuItem menuItem = menuItemRepository.findById(req.getMenuItemId())
+                            .orElseThrow(() -> new ResourceNotFoundException("Menu item not found"));
 
                     if (!menuItem.getAvailable()) {
-                        throw new IllegalArgumentException("Menu item not available");
+                        throw new IllegalArgumentException("Menu item unavailable");
                     }
 
-                    BigDecimal itemTotal = menuItem.getPrice()
-                            .multiply(BigDecimal.valueOf(itemRequest.getQuantity()));
+                    BigDecimal total = menuItem.getPrice()
+                            .multiply(BigDecimal.valueOf(req.getQuantity()));
 
                     return OrderItem.builder()
                             .menuItemId(menuItem.getId())
                             .menuItemName(menuItem.getName())
-                            .quantity(itemRequest.getQuantity())
+                            .quantity(req.getQuantity())
                             .unitPrice(menuItem.getPrice())
-                            .totalPrice(itemTotal)
+                            .totalPrice(total)
                             .build();
                 })
                 .collect(Collectors.toList());
@@ -78,9 +77,9 @@ public class OrderService {
                 .map(OrderItem::getTotalPrice)
                 .reduce(BigDecimal.ZERO, BigDecimal::add);
 
-        BigDecimal deliveryFee = restaurant.getDeliveryFee() != null
-                ? restaurant.getDeliveryFee()
-                : BigDecimal.ZERO;
+        BigDecimal deliveryFee = restaurant.getDeliveryFee() == null
+                ? BigDecimal.ZERO
+                : restaurant.getDeliveryFee();
 
         BigDecimal tax = subtotal.multiply(TAX_RATE);
         BigDecimal totalAmount = subtotal.add(deliveryFee).add(tax);
@@ -100,15 +99,16 @@ public class OrderService {
                 .specialInstructions(request.getSpecialInstructions())
                 .build();
 
-        order = orderRepository.save(order);
+        // ✅ Correct persistence flow
+        Order savedOrder = orderRepository.save(order);
 
-        orderItems.forEach(item -> item.setOrder(order));
+        orderItems.forEach(i -> i.setOrder(savedOrder));
         orderItemRepository.saveAll(orderItems);
-        order.setOrderItems(orderItems);
+        savedOrder.setOrderItems(orderItems);
 
-        publishOrderEvent(order, "ORDER_PLACED");
+        publishOrderEvent(savedOrder, "ORDER_PLACED");
 
-        return mapToResponse(order);
+        return mapToResponse(savedOrder);
     }
 
     public OrderResponse getById(Long id) {
@@ -133,7 +133,51 @@ public class OrderService {
                 .map(this::mapToResponse);
     }
 
-    private void publishOrderEvent(Order order, String eventType) {
+    @Transactional
+    public OrderResponse updateStatus(Long id, OrderStatus newStatus, Long userId) {
+
+        Order order = orderRepository.findById(id)
+                .orElseThrow(() -> new ResourceNotFoundException("Order not found"));
+
+        if (order.getStatus() == OrderStatus.CANCELLED || order.getStatus() == OrderStatus.DELIVERED) {
+            throw new IllegalArgumentException("Cannot update completed order");
+        }
+
+        if (newStatus == OrderStatus.PICKED) {
+            order.setDeliveryPartnerId(userId);
+        }
+
+        order.setStatus(newStatus);
+        order = orderRepository.save(order);
+
+        publishOrderEvent(order, "ORDER_" + newStatus.name());
+
+        return mapToResponse(order);
+    }
+
+    @Transactional
+    public OrderResponse cancelOrder(Long id, Long customerId) {
+
+        Order order = orderRepository.findById(id)
+                .orElseThrow(() -> new ResourceNotFoundException("Order not found"));
+
+        if (!order.getCustomerId().equals(customerId)) {
+            throw new IllegalArgumentException("Not allowed");
+        }
+
+        if (order.getStatus() == OrderStatus.DELIVERED || order.getStatus() == OrderStatus.CANCELLED) {
+            throw new IllegalArgumentException("Cannot cancel");
+        }
+
+        order.setStatus(OrderStatus.CANCELLED);
+        order = orderRepository.save(order);
+
+        publishOrderEvent(order, "ORDER_CANCELLED");
+
+        return mapToResponse(order);
+    }
+
+    private void publishOrderEvent(Order order, String type) {
 
         OrderEvent event = OrderEvent.builder()
                 .orderId(order.getId())
@@ -143,7 +187,7 @@ public class OrderService {
                 .status(order.getStatus())
                 .totalAmount(order.getTotalAmount())
                 .timestamp(LocalDateTime.now())
-                .eventType(eventType)
+                .eventType(type)
                 .build();
 
         kafkaTemplate.send(ORDER_TOPIC, event.getOrderNumber(), event);
@@ -152,13 +196,13 @@ public class OrderService {
     private OrderResponse mapToResponse(Order order) {
 
         List<OrderItemResponse> items = order.getOrderItems().stream()
-                .map(item -> OrderItemResponse.builder()
-                        .id(item.getId())
-                        .menuItemId(item.getMenuItemId())
-                        .menuItemName(item.getMenuItemName())
-                        .quantity(item.getQuantity())
-                        .unitPrice(item.getUnitPrice())
-                        .totalPrice(item.getTotalPrice())
+                .map(i -> OrderItemResponse.builder()
+                        .id(i.getId())
+                        .menuItemId(i.getMenuItemId())
+                        .menuItemName(i.getMenuItemName())
+                        .quantity(i.getQuantity())
+                        .unitPrice(i.getUnitPrice())
+                        .totalPrice(i.getTotalPrice())
                         .build())
                 .collect(Collectors.toList());
 
